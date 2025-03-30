@@ -10,7 +10,8 @@ export interface HotLink {
     text: string;
     completed: boolean;
     createdAt: string;
-    completedAt: string | null; // Add completedAt field
+    completedAt: string | null;
+    deletedAt: string | null; // Add deletedAt field
     active: boolean;
   }
   

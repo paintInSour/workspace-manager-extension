@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, List, Checkbox, Button, Typography, Input, message } from 'antd';
-import { DeleteOutlined } from '@ant-design/icons';
+import { Card, List, Checkbox, Button, Typography, Input, message, Modal } from 'antd';
+import { DeleteOutlined, HistoryOutlined } from '@ant-design/icons';
 import { TodoItem } from '../types';
 
 const { Text } = Typography;
@@ -8,12 +8,17 @@ const { Text } = Typography;
 const TodoList: React.FC = () => {
   const [todoItems, setTodoItems] = useState<TodoItem[]>([]);
   const [newTaskText, setNewTaskText] = useState('');
+  const [deletedTasks, setDeletedTasks] = useState<TodoItem[]>([]);
+  const [isHistoryModalVisible, setIsHistoryModalVisible] = useState(false);
 
   // Load todo items when component mounts
   useEffect(() => {
-    chrome.storage.local.get(['todolist'], (result) => {
+    chrome.storage.local.get(['todolist', 'deletedTasks'], (result) => {
       if (result.todolist) {
         setTodoItems(result.todolist);
+      }
+      if (result.deletedTasks) {
+        setDeletedTasks(result.deletedTasks);
       }
     });
   }, []);
@@ -26,6 +31,11 @@ const TodoList: React.FC = () => {
       dataType: 'todolist',
       data: items
     });
+  };
+
+  const saveDeletedTasks = (tasks: TodoItem[]) => {
+    setDeletedTasks(tasks);
+    chrome.storage.local.set({ deletedTasks: tasks });
   };
 
   // Add new task
@@ -42,6 +52,7 @@ const TodoList: React.FC = () => {
       completed: false,
       createdAt: now.toISOString(), // Store the full ISO string
       completedAt: null, // Default to null
+      deletedAt: null, // Default to null
       active: false
     };
 
@@ -81,9 +92,30 @@ const TodoList: React.FC = () => {
 
   // Delete task
   const deleteTask = (id: string) => {
+    const taskToDelete = todoItems.find(item => item.id === id);
+    if (taskToDelete) {
+      const now = new Date().toISOString();
+      saveDeletedTasks([
+        ...deletedTasks,
+        { ...taskToDelete, deletedAt: now } // Add deletedAt field
+      ]);
+    }
     const updatedItems = todoItems.filter(item => item.id !== id);
     saveTodoItems(updatedItems);
     message.success('Task deleted successfully!');
+  };
+
+  // Restore task
+  const restoreTask = (id: string) => {
+    const taskToRestore = deletedTasks.find(item => item.id === id);
+    if (taskToRestore) {
+      saveDeletedTasks(deletedTasks.filter(item => item.id !== id)); // Remove from deleted tasks
+      saveTodoItems([
+        ...todoItems,
+        { ...taskToRestore, deletedAt: null } // Reset deletedAt field
+      ]);
+      message.success('Task restored successfully!');
+    }
   };
 
   // Sort tasks: uncompleted first (by creation date), completed at the bottom
@@ -111,7 +143,16 @@ const TodoList: React.FC = () => {
 
   return (
     <Card
-      title="Todo List"
+      title={
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Todo List</span>
+          <Button
+            type="text"
+            icon={<HistoryOutlined />}
+            onClick={() => setIsHistoryModalVisible(true)} // Open the history modal
+          />
+        </div>
+      }
       bordered={false}
       className="todolist-container"
       style={{
@@ -176,6 +217,42 @@ const TodoList: React.FC = () => {
           +
         </Button>
       </div>
+      <Modal
+        title="Deleted Tasks"
+        open={isHistoryModalVisible}
+        onCancel={() => setIsHistoryModalVisible(false)} // Close the modal
+        footer={null}
+        style={{ top: 20, right: 0, position: 'absolute' }} // Position the modal to the right
+        bodyStyle={{ maxHeight: '400px', overflowY: 'auto' }} // Scrollable content
+      >
+        <List
+          dataSource={deletedTasks}
+          renderItem={item => (
+            <List.Item
+              key={item.id}
+              actions={[
+                <Button
+                  type="link"
+                  onClick={() => restoreTask(item.id)} // Restore the task
+                >
+                  Restore
+                </Button>
+              ]}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <Text>{item.text}</Text>
+                <Text type="secondary">Created: {formatDateTime(item.createdAt)}</Text>
+                {item.completedAt && (
+                  <Text type="secondary">Completed: {formatDateTime(item.completedAt)}</Text>
+                )}
+                {item.deletedAt && (
+                  <Text type="secondary">Deleted: {formatDateTime(item.deletedAt)}</Text>
+                )}
+              </div>
+            </List.Item>
+          )}
+        />
+      </Modal>
     </Card>
   );
 };
